@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 
 	"github.com/codegangsta/cli"
@@ -13,6 +14,11 @@ import (
 )
 
 type wrapped func(*redis.Client, *cli.Context) (int, error)
+
+// Regular expression to match invalid characters in environment variable
+// names.
+// See: http://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap08.html
+var InvalidRegexp = regexp.MustCompile(`(^[0-9]|[^A-Z0-9_])`)
 
 // Wrap Redis functions to automatically open and close the connection to the
 // Redis instance.
@@ -42,6 +48,10 @@ func run(client *redis.Client, ctx *cli.Context) (ret int, err error) {
 	childEnv := make([]string, len(currentEnv), len(currentEnv)+len(configEnv))
 	copy(childEnv, currentEnv)
 	for k, v := range config {
+		if ctx.GlobalBool("posix") {
+			k = strings.ToUpper(k)
+			k = InvalidRegexp.ReplaceAllString(k, "_")
+		}
 		childEnv = append(childEnv, fmt.Sprintf("%s=%s", k, v))
 	}
 	// exec() the child process.
@@ -123,6 +133,10 @@ func main() {
 			Name:  "name, n",
 			Value: pwd,
 			Usage: "name of Redis hash storing configuration",
+		},
+		cli.BoolFlag{
+			Name:  "posix",
+			Usage: "convert all variable names to to follow the POSIX standard",
 		},
 	}
 	app.Commands = []cli.Command{
