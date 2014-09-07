@@ -38,6 +38,9 @@ func redisCommand(f wrapped, ctx *cli.Context) {
 
 // Start a child process with environment variables from Redis.
 func run(client *redis.Client, ctx *cli.Context) (ret int, err error) {
+	if len(ctx.Args()) == 0 {
+		log.Fatal("you must provide a command name")
+	}
 	// Load application configuration from Redis.
 	config, err := client.Cmd("HGETALL", ctx.GlobalString("key")).Hash()
 	if err != nil {
@@ -88,6 +91,9 @@ func list(client *redis.Client, ctx *cli.Context) (ret int, err error) {
 
 // Retrieve a specific environment variable from Redis.
 func get(client *redis.Client, ctx *cli.Context) (ret int, err error) {
+	if len(ctx.Args()) == 0 {
+		log.Fatal("you must provide a variable name")
+	}
 	envvar := ctx.Args()[0]
 	reply, err := client.Cmd("HGET", ctx.GlobalString("key"), envvar).Str()
 	if err != nil {
@@ -99,6 +105,9 @@ func get(client *redis.Client, ctx *cli.Context) (ret int, err error) {
 
 // Set a specific environment variable in Redis.
 func set(client *redis.Client, ctx *cli.Context) (ret int, err error) {
+	if len(ctx.Args()) < 2 {
+		log.Fatal("you must provide a variable name and value")
+	}
 	envvar, value := ctx.Args()[0], ctx.Args()[1]
 	_, err = client.Cmd("HSET", ctx.GlobalString("key"), envvar, value).Int()
 	if err != nil {
@@ -109,6 +118,9 @@ func set(client *redis.Client, ctx *cli.Context) (ret int, err error) {
 
 // Delete an environment variable from Redis.
 func del(client *redis.Client, ctx *cli.Context) (ret int, err error) {
+	if len(ctx.Args()) == 0 {
+		log.Fatal("you must provide a variable name")
+	}
 	envvar := ctx.Args()[0]
 	_, err = client.Cmd("HDEL", ctx.GlobalString("key"), envvar).Int()
 	if err != nil {
