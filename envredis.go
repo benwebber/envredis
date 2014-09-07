@@ -14,10 +14,15 @@ import (
 	"github.com/fzzy/radix/redis"
 )
 
-// Regular expression to match invalid characters in environment variable
-// names.
-// See: http://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap08.html
-var InvalidRegexp = regexp.MustCompile(`(^[0-9]|[^A-Z0-9_])`)
+func makePOSIXCompatible(envvar string) string {
+	// Regular expression to match invalid characters in environment variable
+	// names.
+	// See: http://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap08.html
+	var InvalidRegexp = regexp.MustCompile(`(^[0-9]|[^A-Z0-9_])`)
+	envvar = strings.ToUpper(envvar)
+	envvar = InvalidRegexp.ReplaceAllString(envvar, "_")
+	return envvar
+}
 
 // Wrap Redis functions to automatically open and close the connection to the
 // Redis instance.
@@ -58,8 +63,7 @@ func runCommand(ctx *cli.Context) (ret int, err error) {
 	copy(childEnv, currentEnv)
 	for k, v := range config {
 		if ctx.GlobalBool("posix") {
-			k = strings.ToUpper(k)
-			k = InvalidRegexp.ReplaceAllString(k, "_")
+			k = makePOSIXCompatible(k)
 		}
 		childEnv = append(childEnv, fmt.Sprintf("%s=%s", k, v))
 	}
@@ -86,6 +90,9 @@ func listCommand(ctx *cli.Context) (ret int, err error) {
 	// Output environment variables as key=value. Surround the values in quotes
 	// if they contain whitespace.
 	for k, v := range config {
+		if ctx.GlobalBool("posix") {
+			k = makePOSIXCompatible(k)
+		}
 		if len(strings.Fields(v)) >= 2 {
 			v = fmt.Sprintf("'%s'", v)
 		}
@@ -120,6 +127,9 @@ func setCommand(ctx *cli.Context) (ret int, err error) {
 		log.Fatal("you must provide a variable name and value")
 	}
 	envvar, value := ctx.Args()[0], ctx.Args()[1]
+	if ctx.GlobalBool("posix") {
+		envvar = makePOSIXCompatible(envvar)
+	}
 	_, err = redisCommand(redisURL, command, key, envvar, value).Int()
 	if err != nil {
 		log.Fatal(err)
