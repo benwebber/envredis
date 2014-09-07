@@ -120,13 +120,27 @@ func getCommand(ctx *cli.Context) (ret int, err error) {
 
 // Set a specific environment variable in Redis.
 func setCommand(ctx *cli.Context) (ret int, err error) {
+	var (
+		envvar string
+		value  string
+	)
+	if len(ctx.Args()) == 1 {
+		// set FOO=bar
+		args := strings.Split(ctx.Args()[0], "=")
+		if len(args) == 2 {
+			envvar, value = args[0], args[1]
+		} else {
+			log.Fatal("you must provide a variable name and value")
+		}
+	} else if len(ctx.Args()) >= 2 {
+		// set FOO bar
+		envvar, value = ctx.Args()[0], ctx.Args()[1]
+	} else {
+		log.Fatal("you must provide a variable name and value")
+	}
 	command := "HSET"
 	key := ctx.GlobalString("key")
 	redisURL := ctx.GlobalString("url")
-	if len(ctx.Args()) < 2 {
-		log.Fatal("you must provide a variable name and value")
-	}
-	envvar, value := ctx.Args()[0], ctx.Args()[1]
 	if ctx.GlobalBool("posix") {
 		envvar = makePOSIXCompatible(envvar)
 	}
