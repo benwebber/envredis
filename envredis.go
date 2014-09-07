@@ -14,6 +14,7 @@ import (
 	"github.com/fzzy/radix/redis"
 )
 
+// Transform an environment variable name to follow the POSIX standard.
 func makePOSIXCompatible(envvar string) string {
 	// Regular expression to match invalid characters in environment variable
 	// names.
@@ -24,7 +25,7 @@ func makePOSIXCompatible(envvar string) string {
 	return envvar
 }
 
-// Wrap Redis functions to automatically open and close the connection to the
+// Wrap Redis commands to automatically open and close the connection to the
 // Redis instance.
 func redisCommand(
 	redisURL string,
@@ -43,7 +44,7 @@ func redisCommand(
 	return client.Cmd(command, args...)
 }
 
-// Start a child process with environment variables from Redis.
+// Start a process with environment variables from Redis.
 func runCommand(ctx *cli.Context) (ret int, err error) {
 	if len(ctx.Args()) == 0 {
 		log.Fatal("you must provide a command name")
@@ -186,6 +187,8 @@ func main() {
 	}
 	app := cli.NewApp()
 	app.Name = "envredis"
+	app.Version = "0.1.0"
+	app.Usage = "Load process environments from Redis."
 	app.Action = func(ctx *cli.Context) {
 		runCommand(ctx)
 	}
