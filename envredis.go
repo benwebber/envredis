@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -38,7 +39,7 @@ func redisCommand(f wrapped, ctx *cli.Context) {
 // Start a child process with environment variables from Redis.
 func run(client *redis.Client, ctx *cli.Context) (ret int, err error) {
 	// Load application configuration from Redis.
-	config, err := client.Cmd("HGETALL", ctx.GlobalString("name")).Hash()
+	config, err := client.Cmd("HGETALL", ctx.GlobalString("key")).Hash()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -70,7 +71,7 @@ func run(client *redis.Client, ctx *cli.Context) (ret int, err error) {
 // List all environment variables stored in Redis.
 func list(client *redis.Client, ctx *cli.Context) (ret int, err error) {
 	// Load application configuration from Redis.
-	config, err := client.Cmd("HGETALL", ctx.GlobalString("name")).Hash()
+	config, err := client.Cmd("HGETALL", ctx.GlobalString("key")).Hash()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -88,7 +89,7 @@ func list(client *redis.Client, ctx *cli.Context) (ret int, err error) {
 // Retrieve a specific environment variable from Redis.
 func get(client *redis.Client, ctx *cli.Context) (ret int, err error) {
 	envvar := ctx.Args()[0]
-	reply, err := client.Cmd("HGET", ctx.GlobalString("name"), envvar).Str()
+	reply, err := client.Cmd("HGET", ctx.GlobalString("key"), envvar).Str()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -99,7 +100,7 @@ func get(client *redis.Client, ctx *cli.Context) (ret int, err error) {
 // Set a specific environment variable in Redis.
 func set(client *redis.Client, ctx *cli.Context) (ret int, err error) {
 	envvar, value := ctx.Args()[0], ctx.Args()[1]
-	_, err = client.Cmd("HSET", ctx.GlobalString("name"), envvar, value).Int()
+	_, err = client.Cmd("HSET", ctx.GlobalString("key"), envvar, value).Int()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -109,7 +110,7 @@ func set(client *redis.Client, ctx *cli.Context) (ret int, err error) {
 // Delete an environment variable from Redis.
 func del(client *redis.Client, ctx *cli.Context) (ret int, err error) {
 	envvar := ctx.Args()[0]
-	_, err = client.Cmd("HDEL", ctx.GlobalString("name"), envvar).Int()
+	_, err = client.Cmd("HDEL", ctx.GlobalString("key"), envvar).Int()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -130,8 +131,8 @@ func main() {
 			Usage: "Redis connection URL",
 		},
 		cli.StringFlag{
-			Name:  "name, n",
-			Value: pwd,
+			Name:  "key, k",
+			Value: filepath.Base(pwd),
 			Usage: "name of Redis hash storing configuration",
 		},
 		cli.BoolFlag{
