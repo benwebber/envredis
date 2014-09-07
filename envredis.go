@@ -14,8 +14,6 @@ import (
 	"github.com/fzzy/radix/redis"
 )
 
-type wrapped func(*redis.Client, *cli.Context) (int, error)
-
 // Regular expression to match invalid characters in environment variable
 // names.
 // See: http://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap08.html
@@ -23,8 +21,12 @@ var InvalidRegexp = regexp.MustCompile(`(^[0-9]|[^A-Z0-9_])`)
 
 // Wrap Redis functions to automatically open and close the connection to the
 // Redis instance.
-func redisCommand(f wrapped, ctx *cli.Context) {
-	u, err := url.Parse(ctx.GlobalString("url"))
+func redisCommand(
+	redisURL string,
+	command string,
+	args ...interface{},
+) *redis.Reply {
+	u, err := url.Parse(redisURL)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -33,16 +35,19 @@ func redisCommand(f wrapped, ctx *cli.Context) {
 		log.Fatal(err)
 	}
 	defer client.Close()
-	f(client, ctx)
+	return client.Cmd(command, args...)
 }
 
 // Start a child process with environment variables from Redis.
-func run(client *redis.Client, ctx *cli.Context) (ret int, err error) {
+func runCommand(ctx *cli.Context) (ret int, err error) {
 	if len(ctx.Args()) == 0 {
 		log.Fatal("you must provide a command name")
 	}
+	command := "HGETALL"
+	key := ctx.GlobalString("key")
+	redisURL := ctx.GlobalString("url")
 	// Load application configuration from Redis.
-	config, err := client.Cmd("HGETALL", ctx.GlobalString("key")).Hash()
+	config, err := redisCommand(redisURL, command, key).Hash()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -72,12 +77,12 @@ func run(client *redis.Client, ctx *cli.Context) (ret int, err error) {
 }
 
 // List all environment variables stored in Redis.
-func list(client *redis.Client, ctx *cli.Context) (ret int, err error) {
+func listCommand(ctx *cli.Context) (ret int, err error) {
+	command := "HGETALL"
+	key := ctx.GlobalString("key")
+	redisURL := ctx.GlobalString("url")
 	// Load application configuration from Redis.
-	config, err := client.Cmd("HGETALL", ctx.GlobalString("key")).Hash()
-	if err != nil {
-		log.Fatal(err)
-	}
+	config, err := redisCommand(redisURL, command, key).Hash()
 	// Output environment variables as key=value. Surround the values in quotes
 	// if they contain whitespace.
 	for k, v := range config {
@@ -90,12 +95,15 @@ func list(client *redis.Client, ctx *cli.Context) (ret int, err error) {
 }
 
 // Retrieve a specific environment variable from Redis.
-func get(client *redis.Client, ctx *cli.Context) (ret int, err error) {
+func getCommand(ctx *cli.Context) (ret int, err error) {
+	command := "HGET"
+	key := ctx.GlobalString("key")
+	redisURL := ctx.GlobalString("url")
 	if len(ctx.Args()) == 0 {
 		log.Fatal("you must provide a variable name")
 	}
 	envvar := ctx.Args()[0]
-	reply, err := client.Cmd("HGET", ctx.GlobalString("key"), envvar).Str()
+	reply, err := redisCommand(redisURL, command, key, envvar).Str()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -104,12 +112,15 @@ func get(client *redis.Client, ctx *cli.Context) (ret int, err error) {
 }
 
 // Set a specific environment variable in Redis.
-func set(client *redis.Client, ctx *cli.Context) (ret int, err error) {
+func setCommand(ctx *cli.Context) (ret int, err error) {
+	command := "HSET"
+	key := ctx.GlobalString("key")
+	redisURL := ctx.GlobalString("url")
 	if len(ctx.Args()) < 2 {
 		log.Fatal("you must provide a variable name and value")
 	}
 	envvar, value := ctx.Args()[0], ctx.Args()[1]
-	_, err = client.Cmd("HSET", ctx.GlobalString("key"), envvar, value).Int()
+	_, err = redisCommand(redisURL, command, key, envvar, value).Int()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -117,12 +128,15 @@ func set(client *redis.Client, ctx *cli.Context) (ret int, err error) {
 }
 
 // Delete an environment variable from Redis.
-func del(client *redis.Client, ctx *cli.Context) (ret int, err error) {
+func deleteCommand(ctx *cli.Context) (ret int, err error) {
 	if len(ctx.Args()) == 0 {
 		log.Fatal("you must provide a variable name")
 	}
+	command := "HDEL"
+	key := ctx.GlobalString("key")
+	redisURL := ctx.GlobalString("url")
 	envvar := ctx.Args()[0]
-	_, err = client.Cmd("HDEL", ctx.GlobalString("key"), envvar).Int()
+	_, err = redisCommand(redisURL, command, key, envvar).Int()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -130,8 +144,11 @@ func del(client *redis.Client, ctx *cli.Context) (ret int, err error) {
 }
 
 // Clear an application's environment variables from Redis.
-func clear(client *redis.Client, ctx *cli.Context) (ret int, err error) {
-	ret, err = client.Cmd("DEL", ctx.GlobalString("key")).Int()
+func clearCommand(ctx *cli.Context) (ret int, err error) {
+	command := "DEL"
+	key := ctx.GlobalString("key")
+	redisURL := ctx.GlobalString("url")
+	ret, err = redisCommand(redisURL, command, key).Int()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -146,7 +163,7 @@ func main() {
 	app := cli.NewApp()
 	app.Name = "envredis"
 	app.Action = func(ctx *cli.Context) {
-		redisCommand(run, ctx)
+		runCommand(ctx)
 	}
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
@@ -172,42 +189,42 @@ func main() {
 			Name:  "run",
 			Usage: "run a command",
 			Action: func(ctx *cli.Context) {
-				redisCommand(run, ctx)
+				runCommand(ctx)
 			},
 		},
 		{
 			Name:  "list",
 			Usage: "list environment variables",
 			Action: func(ctx *cli.Context) {
-				redisCommand(list, ctx)
+				listCommand(ctx)
 			},
 		},
 		{
 			Name:  "get",
 			Usage: "get an environment variable",
 			Action: func(ctx *cli.Context) {
-				redisCommand(get, ctx)
+				getCommand(ctx)
 			},
 		},
 		{
 			Name:  "set",
 			Usage: "set an environment variable",
 			Action: func(ctx *cli.Context) {
-				redisCommand(set, ctx)
+				setCommand(ctx)
 			},
 		},
 		{
 			Name:  "delete",
 			Usage: "delete an environment variable",
 			Action: func(ctx *cli.Context) {
-				redisCommand(del, ctx)
+				deleteCommand(ctx)
 			},
 		},
 		{
 			Name:  "clear",
 			Usage: "clear all environment variables",
 			Action: func(ctx *cli.Context) {
-				redisCommand(clear, ctx)
+				clearCommand(ctx)
 			},
 		},
 	}
