@@ -117,6 +117,15 @@ func del(client *redis.Client, ctx *cli.Context) (ret int, err error) {
 	return ret, err
 }
 
+// Clear an application's environment variables from Redis.
+func clear(client *redis.Client, ctx *cli.Context) (ret int, err error) {
+	ret, err = client.Cmd("DEL", ctx.GlobalString("key")).Int()
+	if err != nil {
+		log.Fatal(err)
+	}
+	return ret, err
+}
+
 func main() {
 	pwd, err := os.Getwd()
 	if err != nil {
@@ -177,6 +186,13 @@ func main() {
 			Usage: "delete an environment variable",
 			Action: func(ctx *cli.Context) {
 				redisCommand(del, ctx)
+			},
+		},
+		{
+			Name:  "clear",
+			Usage: "clear all environment variables",
+			Action: func(ctx *cli.Context) {
+				redisCommand(clear, ctx)
 			},
 		},
 	}
