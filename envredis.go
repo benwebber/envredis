@@ -126,18 +126,21 @@ func main() {
 	app.Name = "envredis"
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
-			Name:  "url, u",
-			Value: "redis://localhost:6379",
-			Usage: "Redis connection URL",
+			Name:   "url, u",
+			Value:  "redis://localhost:6379",
+			Usage:  "Redis connection URL",
+			EnvVar: "ENVREDIS_REDIS_URL",
 		},
 		cli.StringFlag{
-			Name:  "key, k",
-			Value: filepath.Base(pwd),
-			Usage: "name of Redis hash storing configuration",
+			Name:   "key, k",
+			Value:  filepath.Base(pwd),
+			Usage:  "name of Redis hash storing configuration",
+			EnvVar: "ENVREDIS_REDIS_KEY",
 		},
 		cli.BoolFlag{
-			Name:  "posix",
-			Usage: "convert all variable names to to follow the POSIX standard",
+			Name:   "posix",
+			Usage:  "make all variable names follow the POSIX standard",
+			EnvVar: "ENVREDIS_POSIX",
 		},
 	}
 	app.Commands = []cli.Command{
