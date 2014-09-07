@@ -133,6 +133,9 @@ func main() {
 	}
 	app := cli.NewApp()
 	app.Name = "envredis"
+	app.Action = func(ctx *cli.Context) {
+		redisCommand(run, ctx)
+	}
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
 			Name:   "url, u",
