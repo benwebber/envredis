@@ -14,6 +14,42 @@ import (
 	"github.com/fzzy/radix/redis"
 )
 
+// Config holds the envredis configuration.
+type Config struct {
+	RedisURL string   // Redis connection URL
+	Command  string   // Redis command
+	Key      string   // Redis key
+	Args     []string // Redis command arguments
+	POSIX    bool     // whether POSIX compatibility is on or off
+}
+
+func NewConfig() *Config {
+	return &Config{}
+}
+
+func NewConfigFromCLIContext(ctx *cli.Context) *Config {
+	var command string
+	switch ctx.Command.Name {
+	case "list", "run":
+		command = "HGETALL"
+	case "get":
+		command = "HGET"
+	case "set":
+		command = "HSET"
+	case "delete":
+		command = "HDEL"
+	case "clear":
+		command = "DEL"
+	}
+	return &Config{
+		RedisURL: ctx.GlobalString("url"),
+		Command:  command,
+		Key:      ctx.GlobalString("key"),
+		Args:     ctx.Args(),
+		POSIX:    ctx.GlobalBool("posix"),
+	}
+}
+
 // Transform an environment variable name to follow the POSIX standard.
 func makePOSIXCompatible(envvar string) string {
 	// Regular expression to match invalid characters in environment variable
@@ -27,12 +63,8 @@ func makePOSIXCompatible(envvar string) string {
 
 // Wrap Redis commands to automatically open and close the connection to the
 // Redis instance.
-func redisCommand(
-	redisURL string,
-	command string,
-	args ...interface{},
-) *redis.Reply {
-	u, err := url.Parse(redisURL)
+func redisCommand(config *Config) *redis.Reply {
+	u, err := url.Parse(config.RedisURL)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -41,7 +73,9 @@ func redisCommand(
 		log.Fatal(err)
 	}
 	defer client.Close()
-	return client.Cmd(command, args...)
+	args := []string{config.Key}
+	args = append(args, config.Args...)
+	return client.Cmd(config.Command, args)
 }
 
 // Start a process with environment variables from Redis.
@@ -49,11 +83,12 @@ func runCommand(ctx *cli.Context) (ret int, err error) {
 	if len(ctx.Args()) == 0 {
 		log.Fatal("you must provide a command name")
 	}
-	command := "HGETALL"
-	key := ctx.GlobalString("key")
-	redisURL := ctx.GlobalString("url")
+	config := NewConfigFromCLIContext(ctx)
+	// Remove arguments before passing to redis.Client, otherwise HGETALL will
+	// throw an error.
+	config.Args = []string{}
 	// Load application configuration from Redis.
-	config, err := redisCommand(redisURL, command, key).Hash()
+	envConfig, err := redisCommand(config).Hash()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -62,8 +97,8 @@ func runCommand(ctx *cli.Context) (ret int, err error) {
 	configEnv := []string{}
 	childEnv := make([]string, len(currentEnv), len(currentEnv)+len(configEnv))
 	copy(childEnv, currentEnv)
-	for k, v := range config {
-		if ctx.GlobalBool("posix") {
+	for k, v := range envConfig {
+		if config.POSIX {
 			k = makePOSIXCompatible(k)
 		}
 		childEnv = append(childEnv, fmt.Sprintf("%s=%s", k, v))
@@ -83,15 +118,13 @@ func runCommand(ctx *cli.Context) (ret int, err error) {
 
 // List all environment variables stored in Redis.
 func listCommand(ctx *cli.Context) (ret int, err error) {
-	command := "HGETALL"
-	key := ctx.GlobalString("key")
-	redisURL := ctx.GlobalString("url")
+	config := NewConfigFromCLIContext(ctx)
 	// Load application configuration from Redis.
-	config, err := redisCommand(redisURL, command, key).Hash()
+	envConfig, err := redisCommand(config).Hash()
 	// Output environment variables as key=value. Surround the values in quotes
 	// if they contain whitespace.
-	for k, v := range config {
-		if ctx.GlobalBool("posix") {
+	for k, v := range envConfig {
+		if config.POSIX {
 			k = makePOSIXCompatible(k)
 		}
 		if len(strings.Fields(v)) >= 2 {
@@ -104,14 +137,11 @@ func listCommand(ctx *cli.Context) (ret int, err error) {
 
 // Retrieve a specific environment variable from Redis.
 func getCommand(ctx *cli.Context) (ret int, err error) {
-	command := "HGET"
-	key := ctx.GlobalString("key")
-	redisURL := ctx.GlobalString("url")
+	config := NewConfigFromCLIContext(ctx)
 	if len(ctx.Args()) == 0 {
 		log.Fatal("you must provide a variable name")
 	}
-	envvar := ctx.Args()[0]
-	reply, err := redisCommand(redisURL, command, key, envvar).Str()
+	reply, err := redisCommand(config).Str()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -139,13 +169,12 @@ func setCommand(ctx *cli.Context) (ret int, err error) {
 	} else {
 		log.Fatal("you must provide a variable name and value")
 	}
-	command := "HSET"
-	key := ctx.GlobalString("key")
-	redisURL := ctx.GlobalString("url")
-	if ctx.GlobalBool("posix") {
+	config := NewConfigFromCLIContext(ctx)
+	if config.POSIX {
 		envvar = makePOSIXCompatible(envvar)
 	}
-	_, err = redisCommand(redisURL, command, key, envvar, value).Int()
+	config.Args = []string{envvar, value}
+	_, err = redisCommand(config).Int()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -157,11 +186,8 @@ func deleteCommand(ctx *cli.Context) (ret int, err error) {
 	if len(ctx.Args()) == 0 {
 		log.Fatal("you must provide a variable name")
 	}
-	command := "HDEL"
-	key := ctx.GlobalString("key")
-	redisURL := ctx.GlobalString("url")
-	envvar := ctx.Args()[0]
-	_, err = redisCommand(redisURL, command, key, envvar).Int()
+	config := NewConfigFromCLIContext(ctx)
+	_, err = redisCommand(config).Int()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -170,10 +196,8 @@ func deleteCommand(ctx *cli.Context) (ret int, err error) {
 
 // Clear an application's environment variables from Redis.
 func clearCommand(ctx *cli.Context) (ret int, err error) {
-	command := "DEL"
-	key := ctx.GlobalString("key")
-	redisURL := ctx.GlobalString("url")
-	ret, err = redisCommand(redisURL, command, key).Int()
+	config := NewConfigFromCLIContext(ctx)
+	ret, err = redisCommand(config).Int()
 	if err != nil {
 		log.Fatal(err)
 	}
