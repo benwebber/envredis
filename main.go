@@ -111,7 +111,7 @@ func main() {
 	}
 	app := cli.NewApp()
 	app.Name = "envredis"
-	app.Version = "0.1.0"
+	app.Version = Version
 	app.Usage = "Load process environments from Redis."
 	app.Action = func(ctx *cli.Context) {
 		runCommand(ctx)
