@@ -1,7 +1,8 @@
 package main
 
 import (
-	"log"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,74 +41,117 @@ func NewConfigFromCLIContext(ctx *cli.Context) *Config {
 	}
 }
 
+// Output to standard error and exit.
+func die(ret int, messages ...interface{}) {
+	fmt.Fprintln(os.Stderr, messages...)
+	os.Exit(ret)
+}
+
 // Start a process with environment variables from Redis.
 func runCommand(ctx *cli.Context) (ret int, err error) {
 	if len(ctx.Args()) == 0 {
-		log.Fatal("you must provide a command name")
+		ret = 1
+		err = errors.New("you must provide a command name")
+		return
 	}
 	config := NewConfigFromCLIContext(ctx)
-	return RunWithEnvVars(config, ctx.Args()[0], ctx.Args()[1:]...)
+	ret, err = RunWithEnvVars(config, ctx.Args()[0], ctx.Args()[1:]...)
+	return
 }
 
 // List all environment variables stored in Redis.
 func listCommand(ctx *cli.Context) (ret int, err error) {
 	config := NewConfigFromCLIContext(ctx)
-	return ListEnvVar(config)
+	envVars, err := GetEnvVarsArray(config)
+	for _, v := range envVars {
+		fmt.Println(v)
+	}
+	return
 }
 
 // Retrieve a specific environment variable from Redis.
 func getCommand(ctx *cli.Context) (ret int, err error) {
 	if len(ctx.Args()) == 0 {
-		log.Fatal("you must provide a variable name")
+		ret = 1
+		err = errors.New("you must provide a variable name")
+		return
 	}
 	config := NewConfigFromCLIContext(ctx)
-	return GetEnvVar(config)
+	envVar, err := GetEnvVar(config)
+	if envVar != "" {
+		fmt.Println(envVar)
+	}
+	return
 }
 
 // Set a specific environment variable in Redis.
 func setCommand(ctx *cli.Context) (ret int, err error) {
 	var (
-		envvar string
+		envVar string
 		value  string
 	)
 	if len(ctx.Args()) == 1 {
 		// set FOO=bar
 		args := strings.Split(ctx.Args()[0], "=")
 		if len(args) == 2 {
-			envvar, value = args[0], args[1]
+			envVar, value = args[0], args[1]
 		} else {
-			log.Fatal("you must provide a variable name and value")
+			ret = 1
+			err = errors.New("you must provide a variable name and value")
+			return
 		}
 	} else if len(ctx.Args()) >= 2 {
 		// set FOO bar
-		envvar, value = ctx.Args()[0], ctx.Args()[1]
+		envVar, value = ctx.Args()[0], ctx.Args()[1]
 	} else {
-		log.Fatal("you must provide a variable name and value")
+		ret = 1
+		err = errors.New("you must provide a variable name and value")
+		return
 	}
 	config := NewConfigFromCLIContext(ctx)
-	config.Args = []string{envvar, value}
-	return SetEnvVar(config)
+	config.Args = []string{envVar, value}
+	n, err := SetEnvVar(config)
+	if n == 1 {
+		fmt.Printf("set new variable %v=%v\n", envVar, value)
+	} else {
+		fmt.Printf("set existing variable %v=%v\n", envVar, value)
+	}
+	return
 }
 
 // Delete an environment variable from Redis.
 func deleteCommand(ctx *cli.Context) (ret int, err error) {
 	if len(ctx.Args()) == 0 {
-		log.Fatal("you must provide a variable name")
+		err = errors.New("you must provide a variable name")
+		return
 	}
 	config := NewConfigFromCLIContext(ctx)
-	return DeleteEnvVar(config)
+	n, err := DeleteEnvVar(config)
+	fmt.Printf("deleted %v variable(s) from key %v\n", n, config.Key)
+	return
 }
 
 // Clear an application's environment variables from Redis.
 func clearCommand(ctx *cli.Context) (ret int, err error) {
 	config := NewConfigFromCLIContext(ctx)
-	return ClearEnvVar(config)
+	n, err := ClearEnvVars(config)
+	fmt.Printf("deleted %v key(s)\n", n)
+	return ret, err
 }
 
 func main() {
+	ret, err := realMain()
+	if err != nil {
+		die(ret, err)
+	}
+	os.Exit(ret)
+}
+
+func realMain() (ret int, err error) {
 	pwd, err := os.Getwd()
 	if err != nil {
-		os.Exit(1)
+		ret = 1
+		return
 	}
 	app := cli.NewApp()
 	app.Name = "envredis"
@@ -140,44 +184,63 @@ func main() {
 			Name:  "run",
 			Usage: "run a command",
 			Action: func(ctx *cli.Context) {
-				runCommand(ctx)
+				ret, err = runCommand(ctx)
+				if err != nil {
+					die(ret, err.Error())
+				}
 			},
 		},
 		{
 			Name:  "list",
 			Usage: "list environment variables",
 			Action: func(ctx *cli.Context) {
-				listCommand(ctx)
+				ret, err = listCommand(ctx)
+				if err != nil {
+					die(ret, err.Error())
+				}
 			},
 		},
 		{
 			Name:  "get",
 			Usage: "get an environment variable",
 			Action: func(ctx *cli.Context) {
-				getCommand(ctx)
+				ret, err = getCommand(ctx)
+				if err != nil {
+					die(ret, err.Error())
+				}
 			},
 		},
 		{
 			Name:  "set",
 			Usage: "set an environment variable",
 			Action: func(ctx *cli.Context) {
-				setCommand(ctx)
+				ret, err = setCommand(ctx)
+				if err != nil {
+					die(ret, err.Error())
+				}
 			},
 		},
 		{
 			Name:  "delete",
 			Usage: "delete an environment variable",
 			Action: func(ctx *cli.Context) {
-				deleteCommand(ctx)
+				ret, err = deleteCommand(ctx)
+				if err != nil {
+					die(ret, err.Error())
+				}
 			},
 		},
 		{
 			Name:  "clear",
 			Usage: "clear all environment variables",
 			Action: func(ctx *cli.Context) {
-				clearCommand(ctx)
+				ret, err = clearCommand(ctx)
+				if err != nil {
+					die(ret, err.Error())
+				}
 			},
 		},
 	}
-	app.Run(os.Args)
+	err = app.Run(os.Args)
+	return
 }

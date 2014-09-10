@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"net/url"
 	"os"
 	"os/exec"
@@ -26,43 +25,40 @@ func NewConfig() *Config {
 }
 
 // Transform an environment variable name to follow the POSIX standard.
-func makePOSIXCompatible(envvar string) string {
+func makePOSIXCompatible(envVar string) (newEnvVar string) {
 	// Regular expression to match invalid characters in environment variable
 	// names.
 	// See: http://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap08.html
-	var InvalidRegexp = regexp.MustCompile(`(^[0-9]|[^A-Z0-9_])`)
-	envvar = strings.ToUpper(envvar)
-	envvar = InvalidRegexp.ReplaceAllString(envvar, "_")
-	return envvar
+	invalidRegexp := regexp.MustCompile(`(^[0-9]|[^A-Z0-9_])`)
+	newEnvVar = strings.ToUpper(envVar)
+	newEnvVar = invalidRegexp.ReplaceAllString(newEnvVar, "_")
+	return
 }
 
 // Wrap Redis commands to automatically open and close the connection to the
 // Redis instance.
-func redisCommand(config *Config) *redis.Reply {
+func redisCommand(config *Config) (reply *redis.Reply, err error) {
 	u, err := url.Parse(config.RedisURL)
 	if err != nil {
-		log.Fatal(err)
+		return
 	}
 	client, err := redis.Dial("tcp", u.Host)
 	if err != nil {
-		log.Fatal(err)
+		return
 	}
 	defer client.Close()
 	args := []string{config.Key}
 	args = append(args, config.Args...)
-	return client.Cmd(config.Command, args)
+	reply = client.Cmd(config.Command, args)
+	return
 }
 
 func RunWithEnvVars(config *Config, command string, args ...string) (ret int, err error) {
 	// Load application configuration from Redis.
-	envConfig, err := redisCommand(config).Hash()
-	if err != nil {
-		log.Fatal(err)
-	}
+	envConfig, err := GetEnvVarsMap(config)
 	// Concatenate the current environment with the configuration in Redis.
 	currentEnv := os.Environ()
-	configEnv := []string{}
-	childEnv := make([]string, len(currentEnv), len(currentEnv)+len(configEnv))
+	childEnv := make([]string, len(currentEnv), len(currentEnv)+len(envConfig))
 	copy(childEnv, currentEnv)
 	for k, v := range envConfig {
 		if config.POSIX {
@@ -80,58 +76,79 @@ func RunWithEnvVars(config *Config, command string, args ...string) (ret int, er
 	if err != nil {
 		ret = 111
 	}
-	return ret, err
+	return
 }
 
-func ListEnvVar(config *Config) (ret int, err error) {
+func GetEnvVarsMap(config *Config) (env map[string]string, err error) {
+	reply, err := redisCommand(config)
+	if err != nil {
+		return
+	}
+	env, err = reply.Hash()
+	return
+}
+
+func GetEnvVarsArray(config *Config) (envVars []string, err error) {
 	// Load application configuration from Redis.
-	envConfig, err := redisCommand(config).Hash()
+	env, err := GetEnvVarsMap(config)
+	if err != nil {
+		return
+	}
+	envVars = make([]string, 0, len(env))
 	// Output environment variables as key=value. Surround the values in quotes
 	// if they contain whitespace.
-	for k, v := range envConfig {
+	for k, v := range env {
 		if config.POSIX {
 			k = makePOSIXCompatible(k)
 		}
 		if len(strings.Fields(v)) >= 2 {
 			v = fmt.Sprintf("'%s'", v)
 		}
-		fmt.Printf("%s=%s\n", k, v)
+		envVars = append(envVars, fmt.Sprintf("%s=%s", k, v))
 	}
-	return ret, err
+	return
 }
 
-func GetEnvVar(config *Config) (ret int, err error) {
-	reply, err := redisCommand(config).Str()
+func GetEnvVar(config *Config) (envVar string, err error) {
+	reply, err := redisCommand(config)
 	if err != nil {
-		log.Fatal(err)
+		return
 	}
-	fmt.Println(reply)
-	return ret, err
+	// Field does not exist.
+	if reply.Type == redis.NilReply {
+		err = fmt.Errorf("variable '%v' does not exist for key %v", config.Args[0], config.Key)
+		return
+	}
+	envVar, err = reply.Str()
+	return
 }
 
 func SetEnvVar(config *Config) (ret int, err error) {
 	if config.POSIX {
 		config.Args[0] = makePOSIXCompatible(config.Args[0])
 	}
-	_, err = redisCommand(config).Int()
+	reply, err := redisCommand(config)
 	if err != nil {
-		log.Fatal(err)
+		return
 	}
-	return ret, err
+	ret, err = reply.Int()
+	return
 }
 
 func DeleteEnvVar(config *Config) (ret int, err error) {
-	_, err = redisCommand(config).Int()
+	reply, err := redisCommand(config)
 	if err != nil {
-		log.Fatal(err)
+		return
 	}
-	return ret, err
+	ret, err = reply.Int()
+	return
 }
 
-func ClearEnvVar(config *Config) (ret int, err error) {
-	ret, err = redisCommand(config).Int()
+func ClearEnvVars(config *Config) (ret int, err error) {
+	reply, err := redisCommand(config)
 	if err != nil {
-		log.Fatal(err)
+		return
 	}
-	return ret, err
+	ret, err = reply.Int()
+	return
 }
